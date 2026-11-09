@@ -68,6 +68,9 @@ log = { version = "0.4", features = ["std"] }
 # File picker
 nucleo.workspace = true
 ignore = "0.4"
+
+# File tree sidebar
+notify = "8.2"
 grep-regex = "0.1"
 grep-searcher = "0.1"
 grep-matcher = "0.1"

@@ -67,18 +67,54 @@ impl DiffProviderRegistry {
         self,
         cwd: PathBuf,
         trust_full: bool,
-        f: impl Fn(Result<FileChange>) -> bool + Send + 'static,
+        mut f: impl FnMut(Result<FileChange>) -> bool + Send + 'static,
     ) {
         tokio::task::spawn_blocking(move || {
             if self
                 .providers
                 .iter()
-                .find_map(|provider| provider.for_each_changed_file(&cwd, trust_full, &f).ok())
+                .find_map(|provider| {
+                    provider
+                        .for_each_changed_file(&cwd, trust_full, &mut f)
+                        .ok()
+                })
                 .is_none()
             {
                 f(Err(anyhow!("no diff provider returns success")));
             }
         });
+    }
+
+    /// Synchronously collect the changed files reported by the first provider
+    /// that supports the given working directory.
+    pub fn changed_files(&self, cwd: &Path, trust_full: bool) -> Result<Vec<FileChange>> {
+        let mut files = Vec::new();
+        let mut error = None;
+        let mut provider_found = false;
+
+        for provider in &self.providers {
+            let result = provider.for_each_changed_file(cwd, trust_full, |change| {
+                match change {
+                    Ok(change) => files.push(change),
+                    Err(err) => error = Some(err),
+                }
+                true
+            });
+
+            if result.is_ok() {
+                provider_found = true;
+                break;
+            }
+        }
+
+        if !provider_found {
+            bail!("no diff provider returns success");
+        }
+        if let Some(err) = error {
+            return Err(err);
+        }
+
+        Ok(files)
     }
 }
 
@@ -131,12 +167,15 @@ impl DiffProvider {
         &self,
         cwd: &Path,
         trust_full: bool,
-        f: impl Fn(Result<FileChange>) -> bool,
+        f: impl FnMut(Result<FileChange>) -> bool,
     ) -> Result<()> {
         match self {
             #[cfg(feature = "git")]
             Self::Git => git::for_each_changed_file(cwd, trust_full, f),
-            Self::None => bail!("No diff support compiled in"),
+            Self::None => {
+                let _ = (cwd, trust_full, f);
+                bail!("No diff support compiled in")
+            }
         }
     }
 }

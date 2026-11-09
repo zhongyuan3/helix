@@ -100,9 +100,12 @@
 | `file_picker` | Open file picker | normal: `` <space>f ``, select: `` <space>f `` |
 | `file_picker_in_current_buffer_directory` | Open file picker at current buffer's directory |  |
 | `file_picker_in_current_directory` | Open file picker at current working directory | normal: `` <space>F ``, select: `` <space>F `` |
-| `file_explorer` | Open file explorer in workspace root | normal: `` <space>e ``, select: `` <space>e `` |
-| `file_explorer_in_current_buffer_directory` | Open file explorer at current buffer's directory | normal: `` <space>. ``, select: `` <space>. `` |
+| `file_explorer` | Open file explorer in workspace root |  |
+| `file_explorer_in_current_buffer_directory` | Open file explorer at current buffer's directory |  |
 | `file_explorer_in_current_directory` | Open file explorer at current working directory |  |
+| `toggle_file_tree` | Toggle the file tree sidebar | normal: `` <space>e ``, select: `` <space>e `` |
+| `focus_file_tree` | Focus the file tree sidebar | normal: `` <space>E ``, select: `` <space>E `` |
+| `refresh_file_tree` | Refresh the file tree sidebar |  |
 | `code_action` | Perform code action | normal: `` <space>a ``, select: `` <space>a `` |
 | `buffer_picker` | Open buffer picker | normal: `` <space>b ``, select: `` <space>b `` |
 | `jumplist_picker` | Open jumplist picker | normal: `` <space>j ``, select: `` <space>j `` |

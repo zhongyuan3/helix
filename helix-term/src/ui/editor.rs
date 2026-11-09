@@ -1,20 +1,22 @@
 use crate::{
     commands::{self, OnKeyCallback, OnKeyCallbackKind},
-    compositor::{Component, Context, Event, EventResult},
+    compositor::{Component, Compositor, Context, Event, EventResult},
     events::{OnModeSwitch, PostCommand},
     handlers::completion::CompletionItem,
     key,
     keymap::{KeymapResult, Keymaps},
     ui::{
         document::{render_document, LinePos, TextRenderer},
+        file_tree::{FileTree, FileTreeAction, FileTreeOutcome},
         statusline,
         text_decorations::{self, Decoration, DecorationManager, InlineDiagnostics},
-        Completion, ProgressSpinners,
+        Completion, ProgressSpinners, PromptEvent,
     },
 };
 
 use helix_core::{
     diagnostic::NumberOrString,
+    find_workspace,
     graphemes::{next_grapheme_boundary, prev_grapheme_boundary},
     movement::Direction,
     syntax::{self, OverlayHighlights},
@@ -25,15 +27,27 @@ use helix_core::{
 use helix_view::{
     annotations::diagnostics::DiagnosticFilter,
     document::{Mode, SCRATCH_BUFFER_NAME},
-    editor::{CompleteAction, CursorShapeConfig},
+    editor::{Action, CloseError, CompleteAction, CursorShapeConfig, FileTreeSide},
     graphics::{Color, CursorKind, Modifier, Rect, Style},
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     keyboard::{KeyCode, KeyModifiers},
     Document, Editor, Theme, View,
 };
-use std::{mem::take, num::NonZeroUsize, ops, path::PathBuf, rc::Rc};
+use std::{
+    mem::take,
+    num::NonZeroUsize,
+    ops,
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 use tui::{buffer::Buffer as Surface, text::Span};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Focus {
+    Editor,
+    FileTree,
+}
 
 pub struct EditorView {
     pub keymaps: Keymaps,
@@ -44,6 +58,9 @@ pub struct EditorView {
     spinners: ProgressSpinners,
     /// Tracks if the terminal window is focused by reaction to terminal focus events
     terminal_focused: bool,
+    file_tree: Option<FileTree>,
+    focus: Focus,
+    file_tree_area: Rect,
 }
 
 #[derive(Debug, Clone)]
@@ -67,11 +84,251 @@ impl EditorView {
             completion: None,
             spinners: ProgressSpinners::default(),
             terminal_focused: true,
+            file_tree: None,
+            focus: Focus::Editor,
+            file_tree_area: Rect::default(),
         }
     }
 
     pub fn spinners_mut(&mut self) -> &mut ProgressSpinners {
         &mut self.spinners
+    }
+
+    pub fn toggle_file_tree(&mut self, editor: &mut Editor) {
+        if self.file_tree.is_none() {
+            self.focus_file_tree_at(editor, find_workspace().0);
+            return;
+        }
+
+        let (tree_config, explorer_config) = {
+            let config = editor.config();
+            (config.file_tree.clone(), config.file_explorer.clone())
+        };
+        let tree = self.file_tree.as_mut().unwrap();
+
+        if tree.visible {
+            tree.visible = false;
+            tree.clear_pending();
+            tree.stop_watcher();
+            self.focus = Focus::Editor;
+            return;
+        }
+
+        tree.visible = true;
+        tree.apply_config(&tree_config);
+        let trust_full = editor
+            .workspace_trust
+            .query(&tree.root, helix_loader::workspace_trust::TrustQuery::Git)
+            .is_trusted();
+        tree.set_git_context(editor.diff_providers.clone(), trust_full);
+        tree.refresh(&explorer_config);
+        tree.reveal_active(editor, &explorer_config);
+        tree.start_watcher();
+        self.focus = Focus::FileTree;
+        editor.enter_normal_mode();
+    }
+
+    /// Open the file tree at a specific root. Used by the deprecated
+    /// `file_explorer*` command aliases.
+    pub fn focus_file_tree_at(&mut self, editor: &mut Editor, root: PathBuf) {
+        let (tree_config, explorer_config) = {
+            let config = editor.config();
+            (config.file_tree.clone(), config.file_explorer.clone())
+        };
+        let trust_full = editor
+            .workspace_trust
+            .query(&root, helix_loader::workspace_trust::TrustQuery::Git)
+            .is_trusted();
+        let mut tree = FileTree::new(
+            root,
+            &tree_config,
+            editor.diff_providers.clone(),
+            trust_full,
+        );
+        tree.visible = true;
+        tree.rebuild(&explorer_config);
+        tree.reveal_active(editor, &explorer_config);
+        tree.start_watcher();
+        self.file_tree = Some(tree);
+        self.focus = Focus::FileTree;
+        editor.enter_normal_mode();
+    }
+
+    pub fn focus_file_tree(&mut self, editor: &mut Editor) {
+        if self.file_tree.as_ref().is_none_or(|tree| !tree.visible) {
+            self.toggle_file_tree(editor);
+        } else {
+            self.focus = Focus::FileTree;
+            let explorer_config = editor.config().file_explorer.clone();
+            if let Some(tree) = self.file_tree.as_mut() {
+                tree.reveal_active(editor, &explorer_config);
+                tree.start_watcher();
+            }
+            editor.enter_normal_mode();
+        }
+    }
+
+    pub fn refresh_file_tree(&mut self, editor: &mut Editor) {
+        let (tree_config, explorer_config) = {
+            let config = editor.config();
+            (config.file_tree.clone(), config.file_explorer.clone())
+        };
+        if let Some(tree) = self.file_tree.as_mut().filter(|tree| tree.visible) {
+            let trust_full = editor
+                .workspace_trust
+                .query(&tree.root, helix_loader::workspace_trust::TrustQuery::Git)
+                .is_trusted();
+            tree.set_git_context(editor.diff_providers.clone(), trust_full);
+            tree.apply_config(&tree_config);
+            tree.refresh(&explorer_config);
+        }
+    }
+
+    pub fn reveal_file(&mut self, editor: &mut Editor, path: PathBuf) {
+        let explorer_config = editor.config().file_explorer.clone();
+        if let Some(tree) = self.file_tree.as_mut().filter(|tree| tree.visible) {
+            tree.refresh(&explorer_config);
+            tree.reveal_path(&path, &explorer_config);
+        }
+    }
+
+    fn handle_file_tree_action(&mut self, action: FileTreeAction, cx: &mut commands::Context) {
+        match action {
+            FileTreeAction::CreateFile(directory) => self.prompt_create_file(cx, directory),
+            FileTreeAction::CreateDirectory(directory) => {
+                self.prompt_create_directory(cx, directory)
+            }
+            FileTreeAction::Rename(path) => self.prompt_rename(cx, path),
+            FileTreeAction::Delete(path) => self.prompt_delete(cx, path),
+        }
+    }
+
+    fn prompt_create_file(&mut self, cx: &mut commands::Context, directory: PathBuf) {
+        let input = directory.join("").display().to_string();
+        crate::ui::prompt_with_input(
+            cx,
+            "New file: ".into(),
+            input,
+            None,
+            crate::ui::completers::filename,
+            move |cx, input, event| {
+                if event != PromptEvent::Validate || input.is_empty() {
+                    return;
+                }
+
+                let path = helix_stdx::path::canonicalize(input);
+                if path.exists() {
+                    cx.editor
+                        .set_error(format!("{} already exists", path.display()));
+                    return;
+                }
+
+                if let Some(parent) = path.parent().filter(|path| !path.as_os_str().is_empty()) {
+                    if let Err(err) = std::fs::create_dir_all(parent) {
+                        cx.editor
+                            .set_error(format!("Failed to create directory: {err}"));
+                        return;
+                    }
+                }
+
+                match std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&path)
+                {
+                    Ok(_) => {
+                        let opened = match cx.editor.open(&path, Action::Replace) {
+                            Ok(_) => true,
+                            Err(err) => {
+                                cx.editor.set_error(format!("{err}"));
+                                false
+                            }
+                        };
+                        schedule_file_tree_update(cx, Some(path), opened);
+                    }
+                    Err(err) => cx.editor.set_error(format!("Failed to create file: {err}")),
+                }
+            },
+        );
+    }
+
+    fn prompt_create_directory(&mut self, cx: &mut commands::Context, directory: PathBuf) {
+        let input = directory.join("").display().to_string();
+        crate::ui::prompt_with_input(
+            cx,
+            "New directory: ".into(),
+            input,
+            None,
+            crate::ui::completers::directory,
+            move |cx, input, event| {
+                if event != PromptEvent::Validate || input.is_empty() {
+                    return;
+                }
+
+                let path = helix_stdx::path::canonicalize(input);
+                if path.exists() {
+                    cx.editor
+                        .set_error(format!("{} already exists", path.display()));
+                    return;
+                }
+
+                match std::fs::create_dir_all(&path) {
+                    Ok(()) => schedule_file_tree_update(cx, Some(path), false),
+                    Err(err) => cx
+                        .editor
+                        .set_error(format!("Failed to create directory: {err}")),
+                }
+            },
+        );
+    }
+
+    fn prompt_rename(&mut self, cx: &mut commands::Context, path: PathBuf) {
+        let input = path.display().to_string();
+        crate::ui::prompt_with_input(
+            cx,
+            "Rename: ".into(),
+            input,
+            None,
+            crate::ui::completers::filename,
+            move |cx, input, event| {
+                if event != PromptEvent::Validate || input.is_empty() {
+                    return;
+                }
+
+                let new_path = helix_stdx::path::canonicalize(input);
+                match rename_path(cx.editor, &path, &new_path) {
+                    Ok(()) => schedule_file_tree_update(cx, Some(new_path), false),
+                    Err(err) => cx.editor.set_error(err),
+                }
+            },
+        );
+    }
+
+    fn prompt_delete(&mut self, cx: &mut commands::Context, path: PathBuf) {
+        let prompt = format!("Delete {}? [y/N]: ", path.display());
+        crate::ui::prompt_with_input(
+            cx,
+            prompt.into(),
+            String::new(),
+            None,
+            crate::ui::completers::none,
+            move |cx, input, event| {
+                if event != PromptEvent::Validate {
+                    return;
+                }
+
+                let input = input.trim();
+                if !input.eq_ignore_ascii_case("y") && !input.eq_ignore_ascii_case("yes") {
+                    cx.editor.set_status("Delete cancelled");
+                    return;
+                }
+
+                match delete_path(cx.editor, &path) {
+                    Ok(()) => schedule_file_tree_update(cx, None, false),
+                    Err(err) => cx.editor.set_error(err),
+                }
+            },
+        );
     }
 
     pub fn render_view(
@@ -1160,7 +1417,22 @@ impl EditorView {
     pub fn handle_idle_timeout(&mut self, cx: &mut commands::Context) -> EventResult {
         commands::compute_inlay_hints_for_all_views(cx.editor, cx.jobs);
 
-        EventResult::Ignored(None)
+        let explorer_config = cx.editor.config().file_explorer.clone();
+        let refreshed = self
+            .file_tree
+            .as_mut()
+            .filter(|tree| tree.visible)
+            .is_some_and(|tree| {
+                let status_updated = tree.poll_git_status();
+                let tree_updated = tree.poll_events(&explorer_config);
+                status_updated || tree_updated
+            });
+
+        if refreshed {
+            EventResult::Consumed(None)
+        } else {
+            EventResult::Ignored(None)
+        }
     }
 }
 
@@ -1493,6 +1765,46 @@ impl Component for EditorView {
                 // clear status
                 cx.editor.status_msg = None;
 
+                if self.focus == Focus::FileTree {
+                    if key == key!(Esc) {
+                        self.focus = Focus::Editor;
+                        self.keymaps.clear_pending();
+                        if let Some(tree) = self.file_tree.as_mut() {
+                            tree.clear_pending();
+                        }
+                        cx.editor.enter_normal_mode();
+                    } else if let Some(tree) = self.file_tree.as_mut() {
+                        let config = cx.editor.config().file_explorer.clone();
+                        match tree.handle_key(key, cx.editor, &config) {
+                            FileTreeOutcome::Consumed => {}
+                            FileTreeOutcome::FocusEditor => self.focus = Focus::Editor,
+                            FileTreeOutcome::Hide => {
+                                tree.visible = false;
+                                self.focus = Focus::Editor;
+                            }
+                            FileTreeOutcome::Action(action) => {
+                                self.handle_file_tree_action(action, &mut cx);
+                            }
+                        }
+                    }
+
+                    // Callbacks pushed by file tree actions (for example prompts)
+                    // must still be run by the compositor.
+                    let callbacks = take(&mut cx.callback);
+                    let callback = if callbacks.is_empty() {
+                        None
+                    } else {
+                        Some(
+                            Box::new(move |compositor: &mut Compositor, cx: &mut Context| {
+                                for callback in callbacks {
+                                    callback(compositor, cx);
+                                }
+                            }) as crate::compositor::Callback,
+                        )
+                    };
+                    return EventResult::Consumed(callback);
+                }
+
                 let mode = cx.editor.mode();
 
                 if !self.on_next_key(OnKeyCallbackKind::PseudoPending, &mut cx, key) {
@@ -1591,10 +1903,51 @@ impl Component for EditorView {
                 EventResult::Consumed(callback)
             }
 
-            Event::Mouse(event) => self.handle_mouse_event(event, &mut cx),
+            Event::Mouse(event) => {
+                let in_file_tree = self.file_tree.as_ref().is_some_and(|tree| tree.visible)
+                    && self
+                        .file_tree_area
+                        .intersects(Rect::new(event.column, event.row, 1, 1));
+
+                if in_file_tree {
+                    // Moving the mouse over the sidebar should not steal focus.
+                    if matches!(
+                        event.kind,
+                        MouseEventKind::Down(_)
+                            | MouseEventKind::ScrollUp
+                            | MouseEventKind::ScrollDown
+                    ) {
+                        self.focus = Focus::FileTree;
+                        cx.editor.enter_normal_mode();
+                        let config = cx.editor.config().file_explorer.clone();
+                        let focus_editor = self
+                            .file_tree
+                            .as_mut()
+                            .unwrap()
+                            .handle_mouse(event, cx.editor, &config);
+                        if focus_editor {
+                            self.focus = Focus::Editor;
+                        }
+                    }
+                    EventResult::Consumed(None)
+                } else {
+                    if self.focus == Focus::FileTree {
+                        self.focus = Focus::Editor;
+                        self.keymaps.clear_pending();
+                        if let Some(tree) = self.file_tree.as_mut() {
+                            tree.clear_pending();
+                        }
+                    }
+                    self.handle_mouse_event(event, &mut cx)
+                }
+            }
             Event::IdleTimeout => self.handle_idle_timeout(&mut cx),
             Event::FocusGained => {
                 self.terminal_focused = true;
+                if let Some(tree) = self.file_tree.as_mut().filter(|tree| tree.visible) {
+                    let explorer_config = cx.editor.config().file_explorer.clone();
+                    tree.refresh(&explorer_config);
+                }
                 EventResult::Consumed(None)
             }
             Event::FocusLost => {
@@ -1634,6 +1987,54 @@ impl Component for EditorView {
             editor_area = editor_area.clip_top(1);
         }
 
+        // Pick up filesystem and git status changes before drawing.
+        if let Some(tree) = self.file_tree.as_mut().filter(|tree| tree.visible) {
+            tree.poll_git_status();
+            tree.poll_events(&config.file_explorer);
+        }
+
+        // Reserve space for the file tree before resizing the editor. `Editor::resize`
+        // then lays out all views in the remaining area.
+        let tree_layout = self
+            .file_tree
+            .as_ref()
+            .filter(|tree| tree.visible)
+            .map(|tree| {
+                (
+                    tree.width.min(editor_area.width.saturating_sub(20)),
+                    tree.side,
+                )
+            })
+            .filter(|(width, _)| *width > 0);
+
+        if let Some((width, side)) = tree_layout {
+            let (tree_area, separator_x) = match side {
+                FileTreeSide::Left => {
+                    let tree_area = editor_area.clip_right(editor_area.width - width);
+                    editor_area = editor_area.clip_left(width);
+                    (tree_area, tree_area.right().saturating_sub(1))
+                }
+                FileTreeSide::Right => {
+                    let tree_area = editor_area.clip_left(editor_area.width - width);
+                    editor_area = editor_area.clip_right(width);
+                    (tree_area, tree_area.x)
+                }
+            };
+            self.file_tree_area = tree_area;
+
+            let tree = self.file_tree.as_mut().unwrap();
+            tree.render(tree_area, surface, cx.editor);
+
+            let separator_style = cx.editor.theme.get("ui.window");
+            for y in tree_area.top()..tree_area.bottom() {
+                surface[(separator_x, y)]
+                    .set_symbol(tui::symbols::line::VERTICAL)
+                    .set_style(separator_style);
+            }
+        } else {
+            self.file_tree_area = Rect::default();
+        }
+
         // if the terminal size suddenly changed, we need to trigger a resize
         cx.editor.resize(editor_area);
 
@@ -1641,9 +2042,17 @@ impl Component for EditorView {
             Self::render_bufferline(cx.editor, area.with_height(1), surface);
         }
 
+        let sidebar_focused = self.focus == Focus::FileTree;
         for (view, is_focused) in cx.editor.tree.views() {
             let doc = cx.editor.document(view.doc).unwrap();
-            self.render_view(cx.editor, doc, view, area, surface, is_focused);
+            self.render_view(
+                cx.editor,
+                doc,
+                view,
+                area,
+                surface,
+                is_focused && !sidebar_focused,
+            );
         }
 
         if config.auto_info {
@@ -1735,6 +2144,10 @@ impl Component for EditorView {
     }
 
     fn cursor(&self, _area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
+        if self.focus == Focus::FileTree {
+            return (None, CursorKind::Hidden);
+        }
+
         match editor.cursor() {
             // all block cursors are drawn manually
             (pos, CursorKind::Block) => {
@@ -1757,5 +2170,114 @@ fn canonicalize_key(key: &mut KeyEvent) {
     } = key
     {
         key.modifiers.remove(KeyModifiers::SHIFT)
+    }
+}
+
+fn schedule_file_tree_update(
+    cx: &mut crate::compositor::Context,
+    reveal: Option<PathBuf>,
+    focus_editor: bool,
+) {
+    let callback = async move {
+        let call: crate::job::Callback = crate::job::Callback::EditorCompositor(Box::new(
+            move |editor: &mut Editor, compositor: &mut Compositor| {
+                if let Some(view) = compositor.find::<EditorView>() {
+                    match reveal {
+                        Some(path) => view.reveal_file(editor, path),
+                        None => view.refresh_file_tree(editor),
+                    }
+                    if focus_editor {
+                        view.focus = Focus::Editor;
+                    }
+                }
+            },
+        ));
+        Ok(call)
+    };
+    cx.jobs.callback(callback);
+}
+
+fn rename_path(editor: &mut Editor, old: &Path, new: &Path) -> Result<(), String> {
+    if old == new {
+        return Ok(());
+    }
+    if new.symlink_metadata().is_ok() {
+        return Err(format!("{} already exists", new.display()));
+    }
+
+    let old_is_dir = old
+        .symlink_metadata()
+        .map(|metadata| metadata.is_dir())
+        .unwrap_or(false);
+
+    if old_is_dir {
+        // Open documents need their paths updated after the directory moves.
+        let docs: Vec<_> = editor
+            .documents()
+            .filter_map(|doc| {
+                let path = doc.path()?;
+                let relative = path.strip_prefix(old).ok()?.to_owned();
+                Some((doc.id(), relative))
+            })
+            .collect();
+
+        std::fs::rename(old, new)
+            .map_err(|err| format!("Failed to rename {}: {err}", old.display()))?;
+
+        for (doc_id, relative) in docs {
+            editor.set_doc_path(doc_id, &new.join(relative));
+        }
+    } else {
+        let doc_id = editor.document_id_by_path(old);
+        std::fs::rename(old, new)
+            .map_err(|err| format!("Failed to rename {}: {err}", old.display()))?;
+        if let Some(doc_id) = doc_id {
+            editor.set_doc_path(doc_id, new);
+        }
+    }
+
+    Ok(())
+}
+
+fn delete_path(editor: &mut Editor, path: &Path) -> Result<(), String> {
+    let docs: Vec<_> = editor
+        .documents()
+        .filter_map(|doc| {
+            let doc_path = doc.path()?;
+            doc_path.starts_with(path).then_some((
+                doc.id(),
+                doc.is_modified(),
+                doc.display_name().into_owned(),
+            ))
+        })
+        .collect();
+
+    // Refuse before closing anything, so a failed delete cannot leave the
+    // editor in a half-updated state.
+    if let Some((_, _, name)) = docs.iter().find(|(_, modified, _)| *modified) {
+        return Err(format!("{name} has unsaved changes"));
+    }
+
+    for (doc_id, _, _) in docs {
+        match editor.close_document(doc_id, false) {
+            Ok(()) => {}
+            Err(CloseError::BufferModified(name)) => {
+                return Err(format!("{name} has unsaved changes"));
+            }
+            Err(_) => return Err("Failed to close document".to_string()),
+        }
+    }
+
+    let is_dir = path
+        .symlink_metadata()
+        .map(|metadata| metadata.is_dir())
+        .unwrap_or(false);
+
+    if is_dir {
+        std::fs::remove_dir_all(path)
+            .map_err(|err| format!("Failed to delete {}: {err}", path.display()))
+    } else {
+        std::fs::remove_file(path)
+            .map_err(|err| format!("Failed to delete {}: {err}", path.display()))
     }
 }

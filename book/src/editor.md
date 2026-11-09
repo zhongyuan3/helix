@@ -7,6 +7,7 @@
 - [`[editor.cursor-shape]` Section](#editorcursor-shape-section)
 - [`[editor.file-picker]` Section](#editorfile-picker-section)
 - [`[editor.file-explorer]` Section](#editorfile-explorer-section)
+- [`[editor.file-tree]` Section](#editorfile-tree-section)
 - [`[editor.buffer-picker]` Section](#editorbuffer-picker-section)
 - [`[editor.auto-pairs]` Section](#editorauto-pairs-section)
 - [`[editor.auto-save]` Section](#editorauto-save-section)
@@ -235,9 +236,9 @@ Example:
 
 ### `[editor.file-explorer]` Section
 
-In addition to the options for the file picker and global search, a similar set of options is presented to configure the file explorer separately. However, unlike the file picker, the defaults are set to avoid ignoring most files.
+Configures the ignore behaviour used by the file explorer picker and the file tree sidebar (and directory previews). Unlike the file picker, the defaults are set to avoid ignoring most files.
 
-Note that the ignore files consulted by the file explorer when `ignore` is set to true are the same ones used by the file picker, including the aforementioned Helix-specific ignore files.
+Note that the ignore files consulted by the file explorer and the file tree sidebar when `ignore` is set to true are the same ones used by the file picker, including the aforementioned Helix-specific ignore files.
 
 
 | Key | Description | Default |
@@ -250,6 +251,25 @@ Note that the ignore files consulted by the file explorer when `ignore` is set t
 |`git-global` | Enables reading global `.gitignore`, whose path is specified in git's config: `core.excludesfile` option | `false`
 |`git-exclude` | Enables reading `.git/info/exclude` files | `false`
 |`flatten-dirs` | Enables flattening single child directories | `true`
+
+### `[editor.file-tree]` Section
+
+Configuration for the persistent file tree sidebar.
+
+The sidebar uses the same ignore settings as the [`[editor.file-explorer]`](#editorfile-explorer-section) section.
+
+| Key | Description | Default |
+|--|--|---------|
+|`width` | Width of the sidebar in columns | `30` |
+|`side` | Side of the screen the sidebar is rendered on: `left` or `right` | `"left"` |
+
+Example:
+
+```toml
+[editor.file-tree]
+width = 40
+side = "right"
+```
 
 ### `[editor.buffer-picker]` Section
 

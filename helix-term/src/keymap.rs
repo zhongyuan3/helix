@@ -288,6 +288,12 @@ impl Keymaps {
         &self.state
     }
 
+    /// Clears pending keys and any sticky keymap node.
+    pub fn clear_pending(&mut self) {
+        self.state.clear();
+        self.sticky = None;
+    }
+
     pub fn sticky(&self) -> Option<&KeyTrieNode> {
         self.sticky.as_ref()
     }
