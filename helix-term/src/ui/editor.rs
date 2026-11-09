@@ -1194,9 +1194,14 @@ impl EditorView {
         event: KeyEvent,
     ) -> Option<KeymapResult> {
         let mut last_mode = mode;
+        let keymap_info = cxt.editor.config().keymap_info;
         self.pseudo_pending.extend(self.keymaps.pending());
         let key_result = self.keymaps.get(mode, event);
-        cxt.editor.autoinfo = self.keymaps.sticky().map(|node| node.infobox());
+        cxt.editor.autoinfo = if keymap_info {
+            self.keymaps.sticky().map(|node| node.infobox())
+        } else {
+            None
+        };
 
         let mut execute_command = |command: &commands::MappableCommand| {
             command.execute(cxt);
@@ -1227,7 +1232,13 @@ impl EditorView {
             KeymapResult::Matched(command) => {
                 execute_command(command);
             }
-            KeymapResult::Pending(node) => cxt.editor.autoinfo = Some(node.infobox()),
+            KeymapResult::Pending(node) => {
+                cxt.editor.autoinfo = if keymap_info {
+                    Some(node.infobox())
+                } else {
+                    None
+                };
+            }
             KeymapResult::MatchedSequence(commands) => {
                 for command in commands {
                     execute_command(command);

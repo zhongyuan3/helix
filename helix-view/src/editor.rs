@@ -390,6 +390,8 @@ pub struct Config {
     pub continue_comments: bool,
     /// Whether to display infoboxes. Defaults to true.
     pub auto_info: bool,
+    /// Whether to display keymap hints in the infobox. Defaults to true.
+    pub keymap_info: bool,
     pub file_picker: FilePickerConfig,
     pub file_explorer: FileExplorerConfig,
     pub file_tree: FileTreeConfig,
@@ -1228,6 +1230,7 @@ impl Default for Config {
             preview_completion_insert: true,
             completion_trigger_len: 2,
             auto_info: true,
+            keymap_info: true,
             file_picker: FilePickerConfig::default(),
             file_explorer: FileExplorerConfig::default(),
             file_tree: FileTreeConfig::default(),
