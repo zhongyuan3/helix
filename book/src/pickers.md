@@ -18,6 +18,8 @@ The classic directory-browsing file explorer picker is still available through t
 
 `Space-e` toggles the persistent file tree sidebar, rooted at the workspace. `Space-E` focuses it, opening it if it is hidden. The sidebar's ignore behaviour is configured in the [`[editor.file-explorer]`](./editor.md#editorfile-explorer-section) section, and its layout in the [`[editor.file-tree]`](./editor.md#editorfile-tree-section) section. The tree refreshes automatically when files under the currently expanded directories change; press `r` to force a full refresh.
 
+Set `[editor.file-tree] icons = true` to show Nerd Font icons; the glyphs can be customized in the [`[editor.file-tree.icon-overrides]`](./editor.md#editorfile-treeicon-overrides-section) section.
+
 When the workspace is a git repository, changed files are marked with `M` (modified), `?` (untracked), `D` (deleted), `R` (renamed) or `!` (conflict). Directory markers aggregate the status of their descendants. The markers use the theme's `diff.plus`, `diff.delta`, `diff.minus`, `diff.delta.moved` and `diff.delta.conflict` styles.
 
 When the sidebar is focused (`Space-e` opens it focused, `Space-E` focuses it without hiding it), the following keys are available:

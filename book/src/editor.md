@@ -8,6 +8,7 @@
 - [`[editor.file-picker]` Section](#editorfile-picker-section)
 - [`[editor.file-explorer]` Section](#editorfile-explorer-section)
 - [`[editor.file-tree]` Section](#editorfile-tree-section)
+  - [`[editor.file-tree.icon-overrides]` Section](#editorfile-treeicon-overrides-section)
 - [`[editor.buffer-picker]` Section](#editorbuffer-picker-section)
 - [`[editor.auto-pairs]` Section](#editorauto-pairs-section)
 - [`[editor.auto-save]` Section](#editorauto-save-section)
@@ -263,6 +264,7 @@ The sidebar uses the same ignore settings as the [`[editor.file-explorer]`](#edi
 |--|--|---------|
 |`width` | Width of the sidebar in columns | `30` |
 |`side` | Side of the screen the sidebar is rendered on: `left` or `right` | `"left"` |
+|`icons` | Show Nerd Font icons next to files and directories | `false` |
 
 Example:
 
@@ -271,6 +273,41 @@ Example:
 width = 40
 side = "right"
 ```
+
+### `[editor.file-tree.icon-overrides]` Section
+
+Customize the Nerd Font glyphs used when `icons = true` in the [`[editor.file-tree]`](#editorfile-tree-section) section. A Nerd Font must be installed in the terminal.
+
+| Key | Description |
+|--|--|
+|`directory` | Icon for collapsed directories |
+|`directory-open` | Icon for expanded directories |
+|`file` | Fallback icon for files |
+|`by-extension` | Table of icons keyed by file extension (case-insensitive) |
+|`by-name` | Table of icons keyed by exact file name |
+
+Example:
+
+```toml
+[editor.file-tree]
+icons = true
+
+[editor.file-tree.icon-overrides]
+directory = "\uf07b"
+directory-open = "\uf07c"
+file = "\uf15b"
+
+[editor.file-tree.icon-overrides.by-extension]
+rs = "\ue7a8"
+toml = "\ue615"
+md = "\ue73e"
+
+[editor.file-tree.icon-overrides.by-name]
+"Cargo.toml" = "\ue7a8"
+".gitignore" = "\ue702"
+```
+
+Set an icon to an empty string to disable it.
 
 ### `[editor.buffer-picker]` Section
 

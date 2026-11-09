@@ -1,3 +1,5 @@
+mod icons;
+
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -7,7 +9,7 @@ use std::{
 
 use helix_vcs::{DiffProviderRegistry, FileChange};
 use helix_view::{
-    editor::{Action, FileExplorerConfig, FileTreeConfig, FileTreeSide},
+    editor::{Action, FileExplorerConfig, FileTreeConfig, FileTreeIconConfig, FileTreeSide},
     graphics::{Rect, Style},
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     Editor, Theme,
@@ -16,11 +18,15 @@ use tui::buffer::Buffer as Surface;
 
 use crate::{file_watcher::FileWatcher, key};
 
+use self::icons::IconSet;
+
 pub struct FileTree {
     pub root: PathBuf,
     pub width: u16,
     pub side: FileTreeSide,
     pub visible: bool,
+    icons: Option<IconSet>,
+    icon_config: FileTreeIconConfig,
 
     /// Directories that are currently expanded.
     expanded: HashSet<PathBuf>,
@@ -120,6 +126,8 @@ impl FileTree {
             width: config.width,
             side: config.side,
             visible: false,
+            icons: config.icons.then(|| IconSet::new(&config.icon_overrides)),
+            icon_config: config.icon_overrides.clone(),
             expanded: HashSet::new(),
             cache: HashMap::new(),
             rows: Vec::new(),
@@ -353,6 +361,11 @@ impl FileTree {
     pub fn apply_config(&mut self, config: &FileTreeConfig) {
         self.width = config.width;
         self.side = config.side;
+
+        if config.icons != self.icons.is_some() || config.icon_overrides != self.icon_config {
+            self.icons = config.icons.then(|| IconSet::new(&config.icon_overrides));
+            self.icon_config = config.icon_overrides.clone();
+        }
     }
 
     /// Expand the ancestors of the active document and select it.
@@ -437,8 +450,21 @@ impl FileTree {
             } else {
                 "  "
             };
+            let icon = self.icons.as_ref().and_then(|icons| {
+                let icon = if row.is_dir {
+                    icons.directory(row.expanded)
+                } else {
+                    icons.file(&row.path)
+                };
+                (!icon.is_empty()).then_some(icon)
+            });
             let name = row.path.file_name().unwrap_or_default().to_string_lossy();
-            let text = format!("{}{}{}", "  ".repeat(row.depth), arrow, name);
+            let indent = "  ".repeat(row.depth);
+            let text = if let Some(icon) = icon {
+                format!("{indent}{icon} {name}")
+            } else {
+                format!("{indent}{arrow}{name}")
+            };
             let style = if row.is_dir {
                 base_style.patch(directory_style)
             } else {

@@ -273,6 +273,10 @@ pub struct FileTreeConfig {
     pub width: u16,
     /// Which side of the screen the file tree sidebar is rendered on. Defaults to `left`.
     pub side: FileTreeSide,
+    /// Whether to show Nerd Font icons. Defaults to false.
+    pub icons: bool,
+    /// Overrides for the built-in icon set.
+    pub icon_overrides: FileTreeIconConfig,
 }
 
 impl Default for FileTreeConfig {
@@ -280,8 +284,25 @@ impl Default for FileTreeConfig {
         Self {
             width: 30,
             side: FileTreeSide::Left,
+            icons: false,
+            icon_overrides: FileTreeIconConfig::default(),
         }
     }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
+pub struct FileTreeIconConfig {
+    /// Icon for collapsed directories.
+    pub directory: Option<String>,
+    /// Icon for expanded directories.
+    pub directory_open: Option<String>,
+    /// Fallback icon for files.
+    pub file: Option<String>,
+    /// Icons by file extension. Keys are matched case-insensitively.
+    pub by_extension: HashMap<String, String>,
+    /// Icons by exact file name.
+    pub by_name: HashMap<String, String>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

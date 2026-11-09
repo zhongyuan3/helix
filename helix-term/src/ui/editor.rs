@@ -1998,8 +1998,9 @@ impl Component for EditorView {
             editor_area = editor_area.clip_top(1);
         }
 
-        // Pick up filesystem and git status changes before drawing.
+        // Pick up config, filesystem and git status changes before drawing.
         if let Some(tree) = self.file_tree.as_mut().filter(|tree| tree.visible) {
+            tree.apply_config(&config.file_tree);
             tree.poll_git_status();
             tree.poll_events(&config.file_explorer);
         }
