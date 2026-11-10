@@ -249,6 +249,10 @@ pub struct FileExplorerConfig {
     pub git_exclude: bool,
     /// Whether to flatten single-child directories in file explorer. Defaults to true.
     pub flatten_dirs: bool,
+    /// Width of the file explorer sidebar in columns. Defaults to 30.
+    pub width: u16,
+    /// Which side of the screen the file explorer sidebar is rendered on. Defaults to `left`.
+    pub side: FileExplorerSide,
 }
 
 impl Default for FileExplorerConfig {
@@ -262,52 +266,15 @@ impl Default for FileExplorerConfig {
             git_global: false,
             git_exclude: false,
             flatten_dirs: true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
-pub struct FileTreeConfig {
-    /// Width of the file tree sidebar in columns. Defaults to 30.
-    pub width: u16,
-    /// Which side of the screen the file tree sidebar is rendered on. Defaults to `left`.
-    pub side: FileTreeSide,
-    /// Whether to show Nerd Font icons. Defaults to false.
-    pub icons: bool,
-    /// Overrides for the built-in icon set.
-    pub icon_overrides: FileTreeIconConfig,
-}
-
-impl Default for FileTreeConfig {
-    fn default() -> Self {
-        Self {
             width: 30,
-            side: FileTreeSide::Left,
-            icons: false,
-            icon_overrides: FileTreeIconConfig::default(),
+            side: FileExplorerSide::Left,
         }
     }
-}
-
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
-pub struct FileTreeIconConfig {
-    /// Icon for collapsed directories.
-    pub directory: Option<String>,
-    /// Icon for expanded directories.
-    pub directory_open: Option<String>,
-    /// Fallback icon for files.
-    pub file: Option<String>,
-    /// Icons by file extension. Keys are matched case-insensitively.
-    pub by_extension: HashMap<String, String>,
-    /// Icons by exact file name.
-    pub by_name: HashMap<String, String>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum FileTreeSide {
+pub enum FileExplorerSide {
     #[default]
     Left,
     Right,
@@ -415,7 +382,6 @@ pub struct Config {
     pub keymap_info: bool,
     pub file_picker: FilePickerConfig,
     pub file_explorer: FileExplorerConfig,
-    pub file_tree: FileTreeConfig,
     /// Configuration of the statusline elements
     pub statusline: StatusLineConfig,
     /// Shape for cursor in each mode
@@ -1254,7 +1220,6 @@ impl Default for Config {
             keymap_info: true,
             file_picker: FilePickerConfig::default(),
             file_explorer: FileExplorerConfig::default(),
-            file_tree: FileTreeConfig::default(),
             statusline: StatusLineConfig::default(),
             cursor_shape: CursorShapeConfig::default(),
             true_color: false,

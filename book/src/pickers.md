@@ -10,19 +10,15 @@ If a picker shows multiple columns, you may apply the filter to a specific colum
 
 You can insert the contents of a [register](./registers.md) using `Ctrl-r` followed by a register name. For example, one could insert the currently selected text using `Ctrl-r`-`.`, or the directory of the current file using `Ctrl-r`-`%` followed by `Ctrl-w` to remove the last path section. The global search picker will use the contents of the [search register](./registers.md#default-registers) if you press `Enter` without typing a filter. For example, pressing `*`-`Space-/`-`Enter` will start a global search for the currently selected text.
 
-### File picker and file tree
+### File picker and file explorer
 
 `Space-f` opens the fuzzy file picker, rooted at the workspace; `Space-F` opens it at the current working directory. When the terminal is wide enough, the picker shows a syntax-highlighted preview of the selected file by default. Press `Ctrl-t` to toggle the preview.
 
-The classic directory-browsing file explorer picker is still available through the `file_explorer`, `file_explorer_in_current_buffer_directory` and `file_explorer_in_current_directory` commands, for example via the command palette or a custom keybinding. It has no default keybinding.
-
-`Space-e` toggles the persistent file tree sidebar, rooted at the workspace. `Space-E` focuses it, opening it if it is hidden. The sidebar's ignore behaviour is configured in the [`[editor.file-explorer]`](./editor.md#editorfile-explorer-section) section, and its layout in the [`[editor.file-tree]`](./editor.md#editorfile-tree-section) section. The tree refreshes automatically when files under the currently expanded directories change; press `r` to force a full refresh.
-
-Set `[editor.file-tree] icons = true` to show Nerd Font icons; the glyphs can be customized in the [`[editor.file-tree.icon-overrides]`](./editor.md#editorfile-treeicon-overrides-section) section.
+`Space-e` toggles the file explorer sidebar, rooted at the workspace. `Space-.` opens it at the current buffer's directory. Its ignore behaviour and layout are configured in the [`[editor.file-explorer]`](./editor.md#editorfile-explorer-section) section. The tree refreshes automatically when files under the currently expanded directories change; press `r` to force a full refresh.
 
 When the workspace is a git repository, changed files are marked with `M` (modified), `?` (untracked), `D` (deleted), `R` (renamed) or `!` (conflict). Directory markers aggregate the status of their descendants. The markers use the theme's `diff.plus`, `diff.delta`, `diff.minus`, `diff.delta.moved` and `diff.delta.conflict` styles.
 
-When the sidebar is focused (`Space-e` opens it focused, `Space-E` focuses it without hiding it), the following keys are available:
+When the sidebar is focused (`Space-e` opens it focused), the following keys are available:
 
 | Key | Action |
 |--|--|

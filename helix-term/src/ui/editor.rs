@@ -7,7 +7,7 @@ use crate::{
     keymap::{KeymapResult, Keymaps},
     ui::{
         document::{render_document, LinePos, TextRenderer},
-        file_tree::{FileTree, FileTreeAction, FileTreeOutcome},
+        file_explorer::{FileExplorer, FileExplorerAction, FileExplorerOutcome},
         statusline,
         text_decorations::{self, Decoration, DecorationManager, InlineDiagnostics},
         Completion, ProgressSpinners, PromptEvent,
@@ -27,7 +27,7 @@ use helix_core::{
 use helix_view::{
     annotations::diagnostics::DiagnosticFilter,
     document::{Mode, SCRATCH_BUFFER_NAME},
-    editor::{Action, CloseError, CompleteAction, CursorShapeConfig, FileTreeSide},
+    editor::{Action, CloseError, CompleteAction, CursorShapeConfig, FileExplorerSide},
     graphics::{Color, CursorKind, Modifier, Rect, Style},
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     keyboard::{KeyCode, KeyModifiers},
@@ -46,7 +46,7 @@ use tui::{buffer::Buffer as Surface, text::Span};
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Focus {
     Editor,
-    FileTree,
+    FileExplorer,
 }
 
 pub struct EditorView {
@@ -58,9 +58,9 @@ pub struct EditorView {
     spinners: ProgressSpinners,
     /// Tracks if the terminal window is focused by reaction to terminal focus events
     terminal_focused: bool,
-    file_tree: Option<FileTree>,
+    file_explorer: Option<FileExplorer>,
     focus: Focus,
-    file_tree_area: Rect,
+    file_explorer_area: Rect,
 }
 
 #[derive(Debug, Clone)]
@@ -84,9 +84,9 @@ impl EditorView {
             completion: None,
             spinners: ProgressSpinners::default(),
             terminal_focused: true,
-            file_tree: None,
+            file_explorer: None,
             focus: Focus::Editor,
-            file_tree_area: Rect::default(),
+            file_explorer_area: Rect::default(),
         }
     }
 
@@ -94,17 +94,14 @@ impl EditorView {
         &mut self.spinners
     }
 
-    pub fn toggle_file_tree(&mut self, editor: &mut Editor) {
-        if self.file_tree.is_none() {
-            self.focus_file_tree_at(editor, find_workspace().0);
+    pub fn toggle_file_explorer(&mut self, editor: &mut Editor) {
+        if self.file_explorer.is_none() {
+            self.focus_file_explorer_at(editor, find_workspace().0);
             return;
         }
 
-        let (tree_config, explorer_config) = {
-            let config = editor.config();
-            (config.file_tree.clone(), config.file_explorer.clone())
-        };
-        let tree = self.file_tree.as_mut().unwrap();
+        let explorer_config = editor.config().file_explorer.clone();
+        let tree = self.file_explorer.as_mut().unwrap();
 
         if tree.visible {
             tree.visible = false;
@@ -115,7 +112,7 @@ impl EditorView {
         }
 
         tree.visible = true;
-        tree.apply_config(&tree_config);
+        tree.apply_config(&explorer_config);
         let trust_full = editor
             .workspace_trust
             .query(&tree.root, helix_loader::workspace_trust::TrustQuery::Git)
@@ -124,24 +121,20 @@ impl EditorView {
         tree.refresh(&explorer_config);
         tree.reveal_active(editor, &explorer_config);
         tree.start_watcher();
-        self.focus = Focus::FileTree;
+        self.focus = Focus::FileExplorer;
         editor.enter_normal_mode();
     }
 
-    /// Open the file tree at a specific root. Used by the deprecated
-    /// `file_explorer*` command aliases.
-    pub fn focus_file_tree_at(&mut self, editor: &mut Editor, root: PathBuf) {
-        let (tree_config, explorer_config) = {
-            let config = editor.config();
-            (config.file_tree.clone(), config.file_explorer.clone())
-        };
+    /// Open the file explorer at a specific root.
+    pub fn focus_file_explorer_at(&mut self, editor: &mut Editor, root: PathBuf) {
+        let explorer_config = editor.config().file_explorer.clone();
         let trust_full = editor
             .workspace_trust
             .query(&root, helix_loader::workspace_trust::TrustQuery::Git)
             .is_trusted();
-        let mut tree = FileTree::new(
+        let mut tree = FileExplorer::new(
             root,
-            &tree_config,
+            &explorer_config,
             editor.diff_providers.clone(),
             trust_full,
         );
@@ -149,18 +142,18 @@ impl EditorView {
         tree.rebuild(&explorer_config);
         tree.reveal_active(editor, &explorer_config);
         tree.start_watcher();
-        self.file_tree = Some(tree);
-        self.focus = Focus::FileTree;
+        self.file_explorer = Some(tree);
+        self.focus = Focus::FileExplorer;
         editor.enter_normal_mode();
     }
 
-    pub fn focus_file_tree(&mut self, editor: &mut Editor) {
-        if self.file_tree.as_ref().is_none_or(|tree| !tree.visible) {
-            self.toggle_file_tree(editor);
+    pub fn focus_file_explorer(&mut self, editor: &mut Editor) {
+        if self.file_explorer.as_ref().is_none_or(|tree| !tree.visible) {
+            self.toggle_file_explorer(editor);
         } else {
-            self.focus = Focus::FileTree;
+            self.focus = Focus::FileExplorer;
             let explorer_config = editor.config().file_explorer.clone();
-            if let Some(tree) = self.file_tree.as_mut() {
+            if let Some(tree) = self.file_explorer.as_mut() {
                 tree.reveal_active(editor, &explorer_config);
                 tree.start_watcher();
             }
@@ -168,38 +161,39 @@ impl EditorView {
         }
     }
 
-    pub fn refresh_file_tree(&mut self, editor: &mut Editor) {
-        let (tree_config, explorer_config) = {
-            let config = editor.config();
-            (config.file_tree.clone(), config.file_explorer.clone())
-        };
-        if let Some(tree) = self.file_tree.as_mut().filter(|tree| tree.visible) {
+    pub fn refresh_file_explorer(&mut self, editor: &mut Editor) {
+        let explorer_config = editor.config().file_explorer.clone();
+        if let Some(tree) = self.file_explorer.as_mut().filter(|tree| tree.visible) {
             let trust_full = editor
                 .workspace_trust
                 .query(&tree.root, helix_loader::workspace_trust::TrustQuery::Git)
                 .is_trusted();
             tree.set_git_context(editor.diff_providers.clone(), trust_full);
-            tree.apply_config(&tree_config);
+            tree.apply_config(&explorer_config);
             tree.refresh(&explorer_config);
         }
     }
 
     pub fn reveal_file(&mut self, editor: &mut Editor, path: PathBuf) {
         let explorer_config = editor.config().file_explorer.clone();
-        if let Some(tree) = self.file_tree.as_mut().filter(|tree| tree.visible) {
+        if let Some(tree) = self.file_explorer.as_mut().filter(|tree| tree.visible) {
             tree.refresh(&explorer_config);
             tree.reveal_path(&path, &explorer_config);
         }
     }
 
-    fn handle_file_tree_action(&mut self, action: FileTreeAction, cx: &mut commands::Context) {
+    fn handle_file_explorer_action(
+        &mut self,
+        action: FileExplorerAction,
+        cx: &mut commands::Context,
+    ) {
         match action {
-            FileTreeAction::CreateFile(directory) => self.prompt_create_file(cx, directory),
-            FileTreeAction::CreateDirectory(directory) => {
+            FileExplorerAction::CreateFile(directory) => self.prompt_create_file(cx, directory),
+            FileExplorerAction::CreateDirectory(directory) => {
                 self.prompt_create_directory(cx, directory)
             }
-            FileTreeAction::Rename(path) => self.prompt_rename(cx, path),
-            FileTreeAction::Delete(path) => self.prompt_delete(cx, path),
+            FileExplorerAction::Rename(path) => self.prompt_rename(cx, path),
+            FileExplorerAction::Delete(path) => self.prompt_delete(cx, path),
         }
     }
 
@@ -244,7 +238,7 @@ impl EditorView {
                                 false
                             }
                         };
-                        schedule_file_tree_update(cx, Some(path), opened);
+                        schedule_file_explorer_update(cx, Some(path), opened);
                     }
                     Err(err) => cx.editor.set_error(format!("Failed to create file: {err}")),
                 }
@@ -273,7 +267,7 @@ impl EditorView {
                 }
 
                 match std::fs::create_dir_all(&path) {
-                    Ok(()) => schedule_file_tree_update(cx, Some(path), false),
+                    Ok(()) => schedule_file_explorer_update(cx, Some(path), false),
                     Err(err) => cx
                         .editor
                         .set_error(format!("Failed to create directory: {err}")),
@@ -297,7 +291,7 @@ impl EditorView {
 
                 let new_path = helix_stdx::path::canonicalize(input);
                 match rename_path(cx.editor, &path, &new_path) {
-                    Ok(()) => schedule_file_tree_update(cx, Some(new_path), false),
+                    Ok(()) => schedule_file_explorer_update(cx, Some(new_path), false),
                     Err(err) => cx.editor.set_error(err),
                 }
             },
@@ -324,7 +318,7 @@ impl EditorView {
                 }
 
                 match delete_path(cx.editor, &path) {
-                    Ok(()) => schedule_file_tree_update(cx, None, false),
+                    Ok(()) => schedule_file_explorer_update(cx, None, false),
                     Err(err) => cx.editor.set_error(err),
                 }
             },
@@ -1430,7 +1424,7 @@ impl EditorView {
 
         let explorer_config = cx.editor.config().file_explorer.clone();
         let refreshed = self
-            .file_tree
+            .file_explorer
             .as_mut()
             .filter(|tree| tree.visible)
             .is_some_and(|tree| {
@@ -1776,30 +1770,30 @@ impl Component for EditorView {
                 // clear status
                 cx.editor.status_msg = None;
 
-                if self.focus == Focus::FileTree {
+                if self.focus == Focus::FileExplorer {
                     if key == key!(Esc) {
                         self.focus = Focus::Editor;
                         self.keymaps.clear_pending();
-                        if let Some(tree) = self.file_tree.as_mut() {
+                        if let Some(tree) = self.file_explorer.as_mut() {
                             tree.clear_pending();
                         }
                         cx.editor.enter_normal_mode();
-                    } else if let Some(tree) = self.file_tree.as_mut() {
+                    } else if let Some(tree) = self.file_explorer.as_mut() {
                         let config = cx.editor.config().file_explorer.clone();
                         match tree.handle_key(key, cx.editor, &config) {
-                            FileTreeOutcome::Consumed => {}
-                            FileTreeOutcome::FocusEditor => self.focus = Focus::Editor,
-                            FileTreeOutcome::Hide => {
+                            FileExplorerOutcome::Consumed => {}
+                            FileExplorerOutcome::FocusEditor => self.focus = Focus::Editor,
+                            FileExplorerOutcome::Hide => {
                                 tree.visible = false;
                                 self.focus = Focus::Editor;
                             }
-                            FileTreeOutcome::Action(action) => {
-                                self.handle_file_tree_action(action, &mut cx);
+                            FileExplorerOutcome::Action(action) => {
+                                self.handle_file_explorer_action(action, &mut cx);
                             }
                         }
                     }
 
-                    // Callbacks pushed by file tree actions (for example prompts)
+                    // Callbacks pushed by file explorer actions (for example prompts)
                     // must still be run by the compositor.
                     let callbacks = take(&mut cx.callback);
                     let callback = if callbacks.is_empty() {
@@ -1915,12 +1909,12 @@ impl Component for EditorView {
             }
 
             Event::Mouse(event) => {
-                let in_file_tree = self.file_tree.as_ref().is_some_and(|tree| tree.visible)
+                let in_file_explorer = self.file_explorer.as_ref().is_some_and(|tree| tree.visible)
                     && self
-                        .file_tree_area
+                        .file_explorer_area
                         .intersects(Rect::new(event.column, event.row, 1, 1));
 
-                if in_file_tree {
+                if in_file_explorer {
                     // Moving the mouse over the sidebar should not steal focus.
                     if matches!(
                         event.kind,
@@ -1928,11 +1922,11 @@ impl Component for EditorView {
                             | MouseEventKind::ScrollUp
                             | MouseEventKind::ScrollDown
                     ) {
-                        self.focus = Focus::FileTree;
+                        self.focus = Focus::FileExplorer;
                         cx.editor.enter_normal_mode();
                         let config = cx.editor.config().file_explorer.clone();
                         let focus_editor = self
-                            .file_tree
+                            .file_explorer
                             .as_mut()
                             .unwrap()
                             .handle_mouse(event, cx.editor, &config);
@@ -1942,10 +1936,10 @@ impl Component for EditorView {
                     }
                     EventResult::Consumed(None)
                 } else {
-                    if self.focus == Focus::FileTree {
+                    if self.focus == Focus::FileExplorer {
                         self.focus = Focus::Editor;
                         self.keymaps.clear_pending();
-                        if let Some(tree) = self.file_tree.as_mut() {
+                        if let Some(tree) = self.file_explorer.as_mut() {
                             tree.clear_pending();
                         }
                     }
@@ -1955,7 +1949,7 @@ impl Component for EditorView {
             Event::IdleTimeout => self.handle_idle_timeout(&mut cx),
             Event::FocusGained => {
                 self.terminal_focused = true;
-                if let Some(tree) = self.file_tree.as_mut().filter(|tree| tree.visible) {
+                if let Some(tree) = self.file_explorer.as_mut().filter(|tree| tree.visible) {
                     let explorer_config = cx.editor.config().file_explorer.clone();
                     tree.refresh(&explorer_config);
                 }
@@ -1999,16 +1993,16 @@ impl Component for EditorView {
         }
 
         // Pick up config, filesystem and git status changes before drawing.
-        if let Some(tree) = self.file_tree.as_mut().filter(|tree| tree.visible) {
-            tree.apply_config(&config.file_tree);
+        if let Some(tree) = self.file_explorer.as_mut().filter(|tree| tree.visible) {
+            tree.apply_config(&config.file_explorer);
             tree.poll_git_status();
             tree.poll_events(&config.file_explorer);
         }
 
-        // Reserve space for the file tree before resizing the editor. `Editor::resize`
+        // Reserve space for the file explorer before resizing the editor. `Editor::resize`
         // then lays out all views in the remaining area.
         let tree_layout = self
-            .file_tree
+            .file_explorer
             .as_ref()
             .filter(|tree| tree.visible)
             .map(|tree| {
@@ -2021,20 +2015,20 @@ impl Component for EditorView {
 
         if let Some((width, side)) = tree_layout {
             let (tree_area, separator_x) = match side {
-                FileTreeSide::Left => {
+                FileExplorerSide::Left => {
                     let tree_area = editor_area.clip_right(editor_area.width - width);
                     editor_area = editor_area.clip_left(width);
                     (tree_area, tree_area.right().saturating_sub(1))
                 }
-                FileTreeSide::Right => {
+                FileExplorerSide::Right => {
                     let tree_area = editor_area.clip_left(editor_area.width - width);
                     editor_area = editor_area.clip_right(width);
                     (tree_area, tree_area.x)
                 }
             };
-            self.file_tree_area = tree_area;
+            self.file_explorer_area = tree_area;
 
-            let tree = self.file_tree.as_mut().unwrap();
+            let tree = self.file_explorer.as_mut().unwrap();
             tree.render(tree_area, surface, cx.editor);
 
             let separator_style = cx.editor.theme.get("ui.window");
@@ -2044,7 +2038,7 @@ impl Component for EditorView {
                     .set_style(separator_style);
             }
         } else {
-            self.file_tree_area = Rect::default();
+            self.file_explorer_area = Rect::default();
         }
 
         // if the terminal size suddenly changed, we need to trigger a resize
@@ -2054,7 +2048,7 @@ impl Component for EditorView {
             Self::render_bufferline(cx.editor, area.with_height(1), surface);
         }
 
-        let sidebar_focused = self.focus == Focus::FileTree;
+        let sidebar_focused = self.focus == Focus::FileExplorer;
         for (view, is_focused) in cx.editor.tree.views() {
             let doc = cx.editor.document(view.doc).unwrap();
             self.render_view(
@@ -2156,7 +2150,7 @@ impl Component for EditorView {
     }
 
     fn cursor(&self, _area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
-        if self.focus == Focus::FileTree {
+        if self.focus == Focus::FileExplorer {
             return (None, CursorKind::Hidden);
         }
 
@@ -2185,7 +2179,7 @@ fn canonicalize_key(key: &mut KeyEvent) {
     }
 }
 
-fn schedule_file_tree_update(
+fn schedule_file_explorer_update(
     cx: &mut crate::compositor::Context,
     reveal: Option<PathBuf>,
     focus_editor: bool,
@@ -2196,7 +2190,7 @@ fn schedule_file_tree_update(
                 if let Some(view) = compositor.find::<EditorView>() {
                     match reveal {
                         Some(path) => view.reveal_file(editor, path),
-                        None => view.refresh_file_tree(editor),
+                        None => view.refresh_file_explorer(editor),
                     }
                     if focus_editor {
                         view.focus = Focus::Editor;

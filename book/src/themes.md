@@ -347,6 +347,9 @@ These scopes are used for theming the editor interface:
 | `ui.text.info`                    | The key: command text in `ui.popup.info` boxes                                                 |
 | `ui.text.directory`               | Directory names in prompt completion                                                           |
 | `ui.text.symlink`                 | Symlink names in prompt completion                                                             |
+| `ui.file-explorer.background`     | Background of the file explorer sidebar                                                        |
+| `ui.file-explorer.selected`       | Selected row in the file explorer sidebar                                                      |
+| `ui.file-explorer.directory`      | Directory names in the file explorer sidebar                                                   |
 | `ui.virtual.ruler`                | Ruler columns (see the [`editor.rulers` config][editor-section])                               |
 | `ui.virtual.whitespace`           | Visible whitespace characters                                                                  |
 | `ui.virtual.indent-guide`         | Vertical indent width guides                                                                   |

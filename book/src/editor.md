@@ -7,8 +7,6 @@
 - [`[editor.cursor-shape]` Section](#editorcursor-shape-section)
 - [`[editor.file-picker]` Section](#editorfile-picker-section)
 - [`[editor.file-explorer]` Section](#editorfile-explorer-section)
-- [`[editor.file-tree]` Section](#editorfile-tree-section)
-  - [`[editor.file-tree.icon-overrides]` Section](#editorfile-treeicon-overrides-section)
 - [`[editor.buffer-picker]` Section](#editorbuffer-picker-section)
 - [`[editor.auto-pairs]` Section](#editorauto-pairs-section)
 - [`[editor.auto-save]` Section](#editorauto-save-section)
@@ -238,9 +236,9 @@ Example:
 
 ### `[editor.file-explorer]` Section
 
-Configures the ignore behaviour used by the file explorer picker and the file tree sidebar (and directory previews). Unlike the file picker, the defaults are set to avoid ignoring most files.
+Configures the file explorer sidebar and directory previews. Unlike the file picker, the defaults are set to avoid ignoring most files.
 
-Note that the ignore files consulted by the file explorer and the file tree sidebar when `ignore` is set to true are the same ones used by the file picker, including the aforementioned Helix-specific ignore files.
+Note that the ignore files consulted by the file explorer when `ignore` is set to true are the same ones used by the file picker, including the aforementioned Helix-specific ignore files.
 
 
 | Key | Description | Default |
@@ -253,61 +251,16 @@ Note that the ignore files consulted by the file explorer and the file tree side
 |`git-global` | Enables reading global `.gitignore`, whose path is specified in git's config: `core.excludesfile` option | `false`
 |`git-exclude` | Enables reading `.git/info/exclude` files | `false`
 |`flatten-dirs` | Enables flattening single child directories | `true`
-
-### `[editor.file-tree]` Section
-
-Configuration for the persistent file tree sidebar.
-
-The sidebar uses the same ignore settings as the [`[editor.file-explorer]`](#editorfile-explorer-section) section.
-
-| Key | Description | Default |
-|--|--|---------|
-|`width` | Width of the sidebar in columns | `30` |
-|`side` | Side of the screen the sidebar is rendered on: `left` or `right` | `"left"` |
-|`icons` | Show Nerd Font icons next to files and directories | `false` |
+|`width` | Width of the file explorer sidebar in columns | `30`
+|`side` | Side of the screen the file explorer sidebar is rendered on: `left` or `right` | `"left"`
 
 Example:
 
 ```toml
-[editor.file-tree]
+[editor.file-explorer]
 width = 40
 side = "right"
 ```
-
-### `[editor.file-tree.icon-overrides]` Section
-
-Customize the Nerd Font glyphs used when `icons = true` in the [`[editor.file-tree]`](#editorfile-tree-section) section. A Nerd Font must be installed in the terminal.
-
-| Key | Description |
-|--|--|
-|`directory` | Icon for collapsed directories |
-|`directory-open` | Icon for expanded directories |
-|`file` | Fallback icon for files |
-|`by-extension` | Table of icons keyed by file extension (case-insensitive) |
-|`by-name` | Table of icons keyed by exact file name |
-
-Example:
-
-```toml
-[editor.file-tree]
-icons = true
-
-[editor.file-tree.icon-overrides]
-directory = "\uf07b"
-directory-open = "\uf07c"
-file = "\uf15b"
-
-[editor.file-tree.icon-overrides.by-extension]
-rs = "\ue7a8"
-toml = "\ue615"
-md = "\ue73e"
-
-[editor.file-tree.icon-overrides.by-name]
-"Cargo.toml" = "\ue7a8"
-".gitignore" = "\ue702"
-```
-
-Set an icon to an empty string to disable it.
 
 ### `[editor.buffer-picker]` Section
 

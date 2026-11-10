@@ -1,5 +1,3 @@
-mod icons;
-
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -9,7 +7,7 @@ use std::{
 
 use helix_vcs::{DiffProviderRegistry, FileChange};
 use helix_view::{
-    editor::{Action, FileExplorerConfig, FileTreeConfig, FileTreeIconConfig, FileTreeSide},
+    editor::{Action, FileExplorerConfig, FileExplorerSide},
     graphics::{Rect, Style},
     input::{KeyEvent, MouseButton, MouseEvent, MouseEventKind},
     Editor, Theme,
@@ -18,15 +16,11 @@ use tui::buffer::Buffer as Surface;
 
 use crate::{file_watcher::FileWatcher, key};
 
-use self::icons::IconSet;
-
-pub struct FileTree {
+pub struct FileExplorer {
     pub root: PathBuf,
     pub width: u16,
-    pub side: FileTreeSide,
+    pub side: FileExplorerSide,
     pub visible: bool,
-    icons: Option<IconSet>,
-    icon_config: FileTreeIconConfig,
 
     /// Directories that are currently expanded.
     expanded: HashSet<PathBuf>,
@@ -65,17 +59,17 @@ struct Row {
     expanded: bool,
 }
 
-pub enum FileTreeOutcome {
+pub enum FileExplorerOutcome {
     Consumed,
     /// Focus should move back to the editor.
     FocusEditor,
     /// The sidebar should be hidden.
     Hide,
     /// A file operation should be performed by the editor view.
-    Action(FileTreeAction),
+    Action(FileExplorerAction),
 }
 
-pub enum FileTreeAction {
+pub enum FileExplorerAction {
     CreateFile(PathBuf),
     CreateDirectory(PathBuf),
     Rename(PathBuf),
@@ -114,10 +108,10 @@ impl GitStatus {
     }
 }
 
-impl FileTree {
+impl FileExplorer {
     pub fn new(
         root: PathBuf,
-        config: &FileTreeConfig,
+        config: &FileExplorerConfig,
         git_providers: DiffProviderRegistry,
         trust_full: bool,
     ) -> Self {
@@ -126,8 +120,6 @@ impl FileTree {
             width: config.width,
             side: config.side,
             visible: false,
-            icons: config.icons.then(|| IconSet::new(&config.icon_overrides)),
-            icon_config: config.icon_overrides.clone(),
             expanded: HashSet::new(),
             cache: HashMap::new(),
             rows: Vec::new(),
@@ -358,14 +350,9 @@ impl FileTree {
         self.start_status_scan();
     }
 
-    pub fn apply_config(&mut self, config: &FileTreeConfig) {
+    pub fn apply_config(&mut self, config: &FileExplorerConfig) {
         self.width = config.width;
         self.side = config.side;
-
-        if config.icons != self.icons.is_some() || config.icon_overrides != self.icon_config {
-            self.icons = config.icons.then(|| IconSet::new(&config.icon_overrides));
-            self.icon_config = config.icon_overrides.clone();
-        }
     }
 
     /// Expand the ancestors of the active document and select it.
@@ -406,13 +393,13 @@ impl FileTree {
     pub fn render(&mut self, area: Rect, surface: &mut Surface, editor: &Editor) {
         let theme = &editor.theme;
         let background = theme
-            .try_get("ui.file-tree.background")
+            .try_get("ui.file-explorer.background")
             .unwrap_or_else(|| theme.get("ui.background"));
         let selected_style = theme
-            .try_get("ui.file-tree.selected")
+            .try_get("ui.file-explorer.selected")
             .unwrap_or_else(|| theme.get("ui.selection"));
         let directory_style = theme
-            .try_get("ui.file-tree.directory")
+            .try_get("ui.file-explorer.directory")
             .unwrap_or_else(|| theme.get("ui.text.directory"));
 
         surface.set_style(area, background);
@@ -450,21 +437,8 @@ impl FileTree {
             } else {
                 "  "
             };
-            let icon = self.icons.as_ref().and_then(|icons| {
-                let icon = if row.is_dir {
-                    icons.directory(row.expanded)
-                } else {
-                    icons.file(&row.path)
-                };
-                (!icon.is_empty()).then_some(icon)
-            });
             let name = row.path.file_name().unwrap_or_default().to_string_lossy();
-            let indent = "  ".repeat(row.depth);
-            let text = if let Some(icon) = icon {
-                format!("{indent}{icon} {name}")
-            } else {
-                format!("{indent}{arrow}{name}")
-            };
+            let text = format!("{}{}{}", "  ".repeat(row.depth), arrow, name);
             let style = if row.is_dir {
                 base_style.patch(directory_style)
             } else {
@@ -515,18 +489,18 @@ impl FileTree {
         key: KeyEvent,
         editor: &mut Editor,
         config: &FileExplorerConfig,
-    ) -> FileTreeOutcome {
+    ) -> FileExplorerOutcome {
         // `<space>e` toggles the sidebar even while it has focus.
         if self.pending_space {
             self.pending_space = false;
             if key == key!('e') {
-                return FileTreeOutcome::Hide;
+                return FileExplorerOutcome::Hide;
             }
         }
 
         if key == key!(' ') {
             self.pending_space = true;
-            return FileTreeOutcome::Consumed;
+            return FileExplorerOutcome::Consumed;
         }
 
         match key {
@@ -537,51 +511,51 @@ impl FileTree {
             key!('h') | key!(Left) => self.collapse(config),
             key!('l') | key!(Right) => {
                 if self.expand(editor, config) {
-                    return FileTreeOutcome::FocusEditor;
+                    return FileExplorerOutcome::FocusEditor;
                 }
             }
             key!(Enter) => {
                 if self.activate(editor, config) {
-                    return FileTreeOutcome::FocusEditor;
+                    return FileExplorerOutcome::FocusEditor;
                 }
             }
             key!('r') => self.refresh(config),
             key!('R') => self.reveal_active(editor, config),
             key!('a') => {
-                return FileTreeOutcome::Action(FileTreeAction::CreateFile(
+                return FileExplorerOutcome::Action(FileExplorerAction::CreateFile(
                     self.selected_directory(),
                 ));
             }
             key!('A') => {
-                return FileTreeOutcome::Action(FileTreeAction::CreateDirectory(
+                return FileExplorerOutcome::Action(FileExplorerAction::CreateDirectory(
                     self.selected_directory(),
                 ));
             }
             key!('m') => {
                 if let Some(path) = self.selected_path() {
-                    return FileTreeOutcome::Action(FileTreeAction::Rename(path));
+                    return FileExplorerOutcome::Action(FileExplorerAction::Rename(path));
                 }
             }
             key!('d') => {
                 if let Some(path) = self.selected_path() {
-                    return FileTreeOutcome::Action(FileTreeAction::Delete(path));
+                    return FileExplorerOutcome::Action(FileExplorerAction::Delete(path));
                 }
             }
             key!('v') => {
                 if self.open_selected(editor, Action::VerticalSplit) {
-                    return FileTreeOutcome::FocusEditor;
+                    return FileExplorerOutcome::FocusEditor;
                 }
             }
             key!('s') => {
                 if self.open_selected(editor, Action::HorizontalSplit) {
-                    return FileTreeOutcome::FocusEditor;
+                    return FileExplorerOutcome::FocusEditor;
                 }
             }
-            key!('q') => return FileTreeOutcome::Hide,
+            key!('q') => return FileExplorerOutcome::Hide,
             _ => {}
         }
 
-        FileTreeOutcome::Consumed
+        FileExplorerOutcome::Consumed
     }
 
     /// Returns `true` if focus should be moved back to the editor.

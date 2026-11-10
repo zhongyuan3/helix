@@ -7,8 +7,8 @@ use std::{
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 /// Watches the workspace root and the directories currently expanded in the
-/// file tree. Only non-recursive watches are installed, so large ignored trees
-/// such as `target/` are not watched until the user expands them.
+/// file explorer. Only non-recursive watches are installed, so large ignored
+/// trees such as `target/` are not watched until the user expands them.
 pub struct FileWatcher {
     rx: Receiver<notify::Result<Event>>,
     watcher: RecommendedWatcher,
